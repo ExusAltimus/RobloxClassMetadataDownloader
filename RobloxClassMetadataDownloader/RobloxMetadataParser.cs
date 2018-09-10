@@ -15,8 +15,8 @@ namespace RobloxClassMetadataDownloader
    
     public class RobloxMetadataParser
     {
-        public const string ROBLOX_RAW_METADATA_URL = "http://wiki.roblox.com/index.php/API:Class_reference/ReflectionMetadata/raw?action=raw";
-        public const string ROBLOX_RAW_API_DUMP_URL = "http://wiki.roblox.com/index.php/API:Class_reference/Dump/raw?action=raw";
+        public const string ROBLOX_RAW_METADATA_URL = "http://wiki.roblox.com/index.php?title=API:Class_reference/ReflectionMetadata/raw&action=raw";
+        public const string ROBLOX_RAW_API_DUMP_URL = "http://wiki.roblox.com/index.php?title=API:Class_reference/Dump/raw&action=raw";
 
         public async void DownloadMetadata()
         {
@@ -31,16 +31,54 @@ namespace RobloxClassMetadataDownloader
             XmlSerializer deserializer = new XmlSerializer(typeof(Roblox));
             object obj = deserializer.Deserialize(rawMetadataStream);
             Roblox XmlData = (Roblox)obj;
-
             rawMetadataStream.Close();
         }
 
+        //http://wiki.roblox.com/index.php?title=API:Class_reference/Dump/Help
+        private static string[] OrderedAttributes = new[]
+        {
+            "deprecated",
+            "hidden",
+            "readonly",
+            "writeonly",
+            "backend",
+            "RobloxPlaceSecurity",
+            "LocalUserSecurity",
+            "WritePlayerSecurity",
+            "RobloxScriptSecurity",
+            "RobloxSecurity",
+            "PluginSecurity"
+        };
+
         public async Task<IList<RobloxClass>> DownloadApiDump()
         {
-            WebClient client = new WebClient();
+            var client = new CookieWebClient();
+            client.Headers.Add("user-agent", "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.2; .NET CLR 1.0.3705;)");
 
-            string rawApiDump = await client.DownloadStringTaskAsync(ROBLOX_RAW_API_DUMP_URL);
-            MatchCollection classMatches = Regex.Matches(rawApiDump, @"Class (\w+)( : (\w+))?");
+            var response = await client.DownloadStringTaskAsync(ROBLOX_RAW_API_DUMP_URL);
+            if (response.Contains("setCookie"))
+            {
+                MatchCollection cookieMatches = Regex.Matches(response, @"setCookie\('(.+)', '(.+)', (.+)\)");
+                if (cookieMatches.Count > 0)
+                {
+                    var name = cookieMatches[0].Groups[1].Value;
+                    var value = cookieMatches[0].Groups[2].Value;
+                    var expireDays = int.Parse(cookieMatches[0].Groups[3].Value);
+                    var cookie = new Cookie(name, value);
+                    cookie.Domain = "wiki.roblox.com";
+                    cookie.Expires = DateTime.Now.AddDays(expireDays);
+                    client.CookieContainer.Add(cookie);
+                }
+                else
+                {
+                    throw new Exception("Can't parse cookie");
+                }
+                
+            }
+
+            response = await client.DownloadStringTaskAsync(ROBLOX_RAW_API_DUMP_URL);
+
+            MatchCollection classMatches = Regex.Matches(response, @"Class (\w+)( : (\w+))?");
             IList<RobloxClass> robloxClasses = new List<RobloxClass>();
             foreach (Match match in classMatches)
             {
@@ -54,7 +92,8 @@ namespace RobloxClassMetadataDownloader
             }
             foreach (RobloxClass robloxClass in robloxClasses)
             {
-                MatchCollection propertyMatches = Regex.Matches(rawApiDump, @"Property (\w+) " + robloxClass.ClassName + @"\.(\w+)\s?(\[deprecated\])?\s?(\[hidden\])?\s?(\[readonly\])?\s?(\[writeonly\])?\s?(\[backend\])?\s?(\[RobloxPlaceSecurity\])?\s?(\[LocalUserSecurity\])?\s?(\[WritePlayerSecurity\])?\s?(\[RobloxScriptSecurity\])?\s?(\[RobloxSecurity\])?(\[PluginSecurity\])?");
+                var attributeRegex = OrderedAttributes.Aggregate("", (seed, acc) => seed += $@"(\[{acc}\])?\s?");
+                MatchCollection propertyMatches = Regex.Matches(response, $@"Property (\w+) { robloxClass.ClassName }\.(\w+)\s?{ attributeRegex }");
                 foreach (Match match in propertyMatches)
                 {
                     string dataType = match.Groups[1].Value;
@@ -75,7 +114,6 @@ namespace RobloxClassMetadataDownloader
                         RobloxScriptSecurity = !String.IsNullOrEmpty(match.Groups[11].Value),
                         RobloxSecurity = !String.IsNullOrEmpty(match.Groups[12].Value),
                         PluginSecurity = !String.IsNullOrEmpty(match.Groups[13].Value)
-
                     };
 
                     if (robloxProperty.RobloxPlaceSecurity)

@@ -21,13 +21,21 @@ namespace RobloxClassMetadataDownloader
 
         private async void btnDownloadMetadata_Click(object sender, EventArgs e)
         {
-            RobloxMetadataParser robloxMetadataParser = new RobloxMetadataParser();
-            IList<RobloxClass> classes = await robloxMetadataParser.DownloadApiDump();
-            txtResult.Text = robloxMetadataParser.RobloxClassListToLuaLookupTable(classes);
-            if (chkFormatTable.Checked)
+            try
             {
-                FormatTable();
-            }       
+                RobloxMetadataParser robloxMetadataParser = new RobloxMetadataParser();
+                IList<RobloxClass> classes = await robloxMetadataParser.DownloadApiDump();
+                txtResult.Text = robloxMetadataParser.RobloxClassListToLuaLookupTable(classes);
+                if (chkFormatTable.Checked)
+                {
+                    FormatTable();
+                }
+            }
+            catch(Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+ 
         }
 
         private void FormatTable()
